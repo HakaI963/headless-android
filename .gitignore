@@ -12,6 +12,7 @@ local.properties
 # keystores (never commit)
 *.keystore
 *.jks
+!app/src/main/assets/clone.keystore
 
 # OS
 .DS_Store

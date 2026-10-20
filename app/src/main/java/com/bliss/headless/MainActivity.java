@@ -2,31 +2,26 @@ package com.bliss.headless;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ContentResolver;
-import android.content.ContentValues;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.MediaStore;
-import android.view.View;
+import android.os.ParcelFileDescriptor;
+import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -40,6 +35,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     private static final String TAG = "HeadlessDisplay";
     private static final int KEYCODE_BACK = 4;
     private static final int KEYCODE_HOME = 3;
+    private static final int PICK_APK = 4001;
 
     private EngineClient client;
     private ExecutorService io;
@@ -70,6 +66,12 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     private Button btnLaunchApp;
     private CheckBox checkForceStop;
 
+    private Button btnCloneInstalled;
+    private Button btnInstallApkClone;
+    private Button btnRefreshClones;
+    private TextView txtCloneStatus;
+    private LinearLayout cloneList;
+
     private EditText editTapX;
     private EditText editTapY;
     private Button btnTap;
@@ -79,13 +81,6 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     private EditText editTextValue;
     private Button btnSendText;
 
-    private Button btnSelfTest;
-    private TextView txtTestBadge;
-    private TextView txtSelfTest;
-    private ImageView imgBefore;
-    private ImageView imgAfter;
-    private Button btnSaveEvidence;
-
     private TextView txtLog;
     private Button btnClearLog;
 
@@ -94,12 +89,10 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     private Bitmap previewBitmap;
     private long previewFrames;
     private long previewWindowStart;
-    private boolean selfTestPolling;
-    private boolean evidenceLoaded;
+    private boolean clonesLoaded;
     private String selectedPackage = "";
     private final List<String> appLabels = new ArrayList<>();
     private final List<String> appPackages = new ArrayList<>();
-    private String lastSelfTestJson = "";
     private int displayWidth = 720;
     private int displayHeight = 1280;
     private boolean displayReady;
@@ -108,6 +101,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         client = ((App) getApplication()).client();
         io = Executors.newFixedThreadPool(3);
@@ -136,6 +130,12 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         btnLaunchApp = findViewById(R.id.btnLaunchApp);
         checkForceStop = findViewById(R.id.checkForceStop);
 
+        btnCloneInstalled = findViewById(R.id.btnCloneInstalled);
+        btnInstallApkClone = findViewById(R.id.btnInstallApkClone);
+        btnRefreshClones = findViewById(R.id.btnRefreshClones);
+        txtCloneStatus = findViewById(R.id.txtCloneStatus);
+        cloneList = findViewById(R.id.cloneList);
+
         editTapX = findViewById(R.id.editTapX);
         editTapY = findViewById(R.id.editTapY);
         btnTap = findViewById(R.id.btnTap);
@@ -144,13 +144,6 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         btnHome = findViewById(R.id.btnHome);
         editTextValue = findViewById(R.id.editTextValue);
         btnSendText = findViewById(R.id.btnSendText);
-
-        btnSelfTest = findViewById(R.id.btnSelfTest);
-        txtTestBadge = findViewById(R.id.txtTestBadge);
-        txtSelfTest = findViewById(R.id.txtSelfTest);
-        imgBefore = findViewById(R.id.imgBefore);
-        imgAfter = findViewById(R.id.imgAfter);
-        btnSaveEvidence = findViewById(R.id.btnSaveEvidence);
 
         txtLog = findViewById(R.id.txtLog);
         btnClearLog = findViewById(R.id.btnClearLog);
@@ -174,6 +167,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             stopPreview();
             client.stopService();
             displayReady = false;
+            clonesLoaded = false;
             appendLog("engine stopped by user");
             refreshState();
         });
@@ -226,7 +220,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
                 return;
             }
             String name = "headless-snapshot-" + timestamp() + ".jpg";
-            String location = saveBytes(name, "image/jpeg", frame.jpeg);
+            String location = Downloads.save(this, name, "image/jpeg", frame.jpeg);
             main.post(() -> {
                 appendLog("snapshot saved: " + location);
                 toast("Saved: " + location);
@@ -234,8 +228,12 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         }));
 
         btnRefreshApps.setOnClickListener(v -> refreshApps());
-        btnChooseApp.setOnClickListener(v -> chooseApp());
+        btnChooseApp.setOnClickListener(v -> chooseApp(false));
         btnLaunchApp.setOnClickListener(v -> launchSelectedApp());
+
+        btnCloneInstalled.setOnClickListener(v -> chooseApp(true));
+        btnInstallApkClone.setOnClickListener(v -> pickApk());
+        btnRefreshClones.setOnClickListener(v -> refreshClones());
 
         btnTap.setOnClickListener(v -> {
             int x = parseInt(editTapX, displayWidth / 2);
@@ -271,8 +269,6 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             });
         });
 
-        btnSelfTest.setOnClickListener(v -> startSelfTest());
-        btnSaveEvidence.setOnClickListener(v -> saveEvidence());
         btnClearLog.setOnClickListener(v -> txtLog.setText(""));
 
         client.addListener(this);
@@ -289,9 +285,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     @Override
     protected void onPause() {
         super.onPause();
-        if (!selfTestPolling) {
-            stopPreview();
-        }
+        stopPreview();
     }
 
     @Override
@@ -304,6 +298,40 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             previewBitmap.recycle();
             previewBitmap = null;
         }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_APK || resultCode != RESULT_OK || data == null
+                || data.getData() == null) {
+            return;
+        }
+        final android.net.Uri uri = data.getData();
+        String name = uri.getLastPathSegment();
+        if (name != null && name.toLowerCase(Locale.US).endsWith(".apk")) {
+            name = name.substring(0, name.length() - 4);
+        }
+        final String suggested = name;
+        io.execute(() -> {
+            String result;
+            try (ParcelFileDescriptor descriptor =
+                         getContentResolver().openFileDescriptor(uri, "r")) {
+                if (descriptor == null) {
+                    result = Jsons.error("cannot open the selected file");
+                } else {
+                    result = client.cloneFromApk(descriptor, suggested);
+                }
+            } catch (Throwable e) {
+                result = Jsons.error(String.valueOf(e));
+            }
+            final String outcome = result;
+            main.post(() -> {
+                appendLog("install APK clone: " + outcome);
+                toast(outcome.contains("\"ok\":true") ? "Clone installed" : "Clone install failed");
+                refreshClones();
+            });
+        });
     }
 
     // ------------------------------------------------------------- listener
@@ -338,6 +366,11 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         btnStop.setEnabled(connected);
         btnOpenShizuku.setEnabled(manager);
 
+        boolean cloneButtons = connected;
+        btnCloneInstalled.setEnabled(cloneButtons);
+        btnInstallApkClone.setEnabled(cloneButtons);
+        btnRefreshClones.setEnabled(cloneButtons);
+
         if (!connected) {
             txtDisplayStatus.setText("no shell engine — tap Start engine");
             btnCreate.setEnabled(false);
@@ -351,18 +384,22 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             btnHome.setEnabled(false);
             btnSendText.setEnabled(false);
             btnSnapshot.setEnabled(false);
-            btnSelfTest.setEnabled(false);
             btnPreview.setEnabled(false);
+            cloneList.removeAllViews();
+            txtCloneStatus.setText("shell engine not connected");
+            clonesLoaded = false;
             return;
         }
 
         btnChooseApp.setEnabled(true);
         btnRefreshApps.setEnabled(true);
-        btnSelfTest.setEnabled(!selfTestPolling);
         btnPreview.setEnabled(true);
-        btnSnapshot.setEnabled(displayReady);
 
-        // Engine status gives the real display state.
+        if (!clonesLoaded) {
+            clonesLoaded = true;
+            refreshClones();
+        }
+
         io.execute(() -> {
             String json = client.status();
             main.post(() -> renderEngineStatus(json));
@@ -510,7 +547,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         });
     }
 
-    private void chooseApp() {
+    private void chooseApp(boolean cloneMode) {
         if (appPackages.isEmpty()) {
             refreshApps();
             toast("Loading app list… tap again in a second");
@@ -518,11 +555,46 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         }
         String[] items = appLabels.toArray(new String[0]);
         new AlertDialog.Builder(this)
-                .setTitle("Launch on the virtual display")
+                .setTitle(cloneMode ? "Clone which app?" : "Launch on the virtual display")
                 .setItems(items, (dialog, which) -> {
-                    selectedPackage = appPackages.get(which);
-                    txtSelectedApp.setText(appLabels.get(which) + "\n" + selectedPackage);
-                    btnLaunchApp.setEnabled(displayReady);
+                    if (cloneMode) {
+                        promptCloneName(appLabels.get(which), appPackages.get(which));
+                    } else {
+                        selectedPackage = appPackages.get(which);
+                        txtSelectedApp.setText(appLabels.get(which) + "\n" + selectedPackage);
+                        btnLaunchApp.setEnabled(displayReady);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void promptCloneName(String label, String packageName) {
+        EditText input = new EditText(this);
+        String suggested = label + " (clone)";
+        input.setText(suggested);
+        input.setSelection(input.getText().length());
+        LinearLayout holder = new LinearLayout(this);
+        holder.setPadding(dp(20), dp(8), dp(20), 0);
+        holder.addView(input, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        new AlertDialog.Builder(this)
+                .setTitle("Clone name")
+                .setMessage("The APK is repackaged with a new package name and signature, "
+                        + "installed hidden, and launched on the virtual display. "
+                        + "This can take a while for large apps.")
+                .setView(holder)
+                .setPositiveButton("Clone", (dialog, which) -> {
+                    String name = input.getText().toString().trim();
+                    io.execute(() -> {
+                        String result = client.cloneFromInstalled(packageName, name);
+                        main.post(() -> {
+                            appendLog("clone " + packageName + ": " + result);
+                            toast(result.contains("\"ok\":true")
+                                    ? "Clone created" : "Clone failed");
+                            refreshClones();
+                        });
+                    });
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -543,165 +615,204 @@ public class MainActivity extends Activity implements EngineClient.Listener {
         });
     }
 
-    // -------------------------------------------------------------- self-test
+    private void pickApk() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/vnd.android.package-archive");
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                "application/vnd.android.package-archive", "application/octet-stream"});
+        try {
+            startActivityForResult(intent, PICK_APK);
+        } catch (Throwable e) {
+            toast("No file picker available");
+        }
+    }
 
-    private void startSelfTest() {
+    // ---------------------------------------------------------------- clones
+
+    private void refreshClones() {
         if (!client.isServiceConnected()) {
-            toast("Start the shell engine first");
             return;
         }
-        selfTestPolling = true;
-        evidenceLoaded = false;
-        lastSelfTestJson = "";
-        txtSelfTest.setText("starting…");
-        txtTestBadge.setText(R.string.badge_running);
-        txtTestBadge.setTextColor(getColor(R.color.warning));
-        btnSelfTest.setEnabled(false);
-        imgBefore.setImageDrawable(null);
-        imgAfter.setImageDrawable(null);
-        if (!previewRunning) {
-            startPreview();
-        }
         io.execute(() -> {
-            String result = client.startSelfTest();
+            String json = client.cloneList();
+            String error = null;
+            JSONArray array = null;
+            JSONObject root = parse(json);
+            if (root == null) {
+                error = "clone list parse failed";
+            } else if (root.has("error")) {
+                error = root.optString("error");
+            } else {
+                array = root.optJSONArray("clones");
+            }
+            final JSONArray clones = array;
+            final String failure = error;
+            final JSONObject status = root;
             main.post(() -> {
-                appendLog("self-test: " + result);
-                main.postDelayed(selfTestTick, 400);
+                if (failure != null) {
+                    txtCloneStatus.setText("clone list error: " + failure);
+                    return;
+                }
+                renderClones(clones, status);
             });
         });
     }
 
-    private final Runnable selfTestTick = new Runnable() {
-        @Override
-        public void run() {
-            if (!selfTestPolling) {
-                return;
-            }
-            io.execute(() -> {
-                String json = client.selfTestStatus();
-                main.post(() -> {
-                    lastSelfTestJson = json;
-                    renderSelfTest(json);
-                    if (selfTestPolling) {
-                        main.postDelayed(selfTestTick, 450);
-                    }
-                });
-            });
-        }
-    };
-
-    private void renderSelfTest(String json) {
-        JSONObject object = parse(json);
-        if (object == null) {
+    private void renderClones(JSONArray array, JSONObject root) {
+        cloneList.removeAllViews();
+        int count = array == null ? 0 : array.length();
+        int displayId = root == null ? -1 : root.optInt("display_id", -1);
+        txtCloneStatus.setText("clones: " + count + " · repackaged in user 0"
+                + (displayId > 0 ? " · display #" + displayId : " · no display yet"));
+        if (array == null || count == 0) {
+            TextView empty = new TextView(this);
+            empty.setText("No clones yet.\n\"Clone installed app…\" builds a second, "
+                    + "isolated copy of an app and runs it on the virtual display.");
+            empty.setTextColor(getColor(R.color.text_dim));
+            empty.setTextSize(12f);
+            empty.setPadding(0, dp(8), 0, 0);
+            cloneList.addView(empty);
             return;
         }
-        JSONArray lines = object.optJSONArray("lines");
-        StringBuilder builder = new StringBuilder();
-        if (lines != null) {
-            for (int i = 0; i < lines.length(); i++) {
-                builder.append(lines.optString(i)).append('\n');
+        for (int i = 0; i < array.length(); i++) {
+            JSONObject clone = array.optJSONObject(i);
+            if (clone != null) {
+                addCloneRow(clone);
             }
-        }
-        txtSelfTest.setText(builder.toString());
-        boolean done = object.optBoolean("done", false);
-        boolean pass = object.optBoolean("pass", false);
-        if (done) {
-            selfTestPolling = false;
-            txtTestBadge.setText(pass ? R.string.badge_pass : R.string.badge_fail);
-            txtTestBadge.setTextColor(getColor(pass ? R.color.success : R.color.danger));
-            btnSelfTest.setEnabled(true);
-            if (!evidenceLoaded) {
-                evidenceLoaded = true;
-                loadEvidence();
-            }
-        } else {
-            txtTestBadge.setText(R.string.badge_running);
         }
     }
 
-    private void loadEvidence() {
+    private void addCloneRow(JSONObject clone) {
+        final String clonePackage = clone.optString("package");
+        final String originalPackage = clone.optString("original");
+        final String activity = clone.optString("activity");
+        final String label = clone.optString("label", clonePackage);
+        String status = clone.optString("status", "unknown");
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setBackgroundResource(R.drawable.bg_input);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = dp(8);
+        row.setLayoutParams(params);
+        row.setPadding(dp(10), dp(10), dp(10), dp(10));
+
+        TextView title = new TextView(this);
+        title.setText(label);
+        title.setTextColor(getColor(R.color.text_primary));
+        title.setTextSize(14f);
+        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
+        row.addView(title);
+
+        TextView detail = new TextView(this);
+        detail.setText("clone: " + clonePackage
+                + "\nfrom: " + originalPackage
+                + "\nactivity: " + activity
+                + "\n" + describeCloneStatus(status));
+        detail.setTextColor(getColor(R.color.text_secondary));
+        detail.setTextSize(11f);
+        detail.setPadding(0, dp(3), 0, 0);
+        row.addView(detail);
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        actionParams.topMargin = dp(7);
+        actions.setLayoutParams(actionParams);
+
+        Button launch = smallButton("Launch");
+        launch.setOnClickListener(v -> cloneAction("launch", clonePackage));
+        actions.addView(launch, rowButtonParams(true));
+
+        Button kill = smallButton("Kill");
+        kill.setOnClickListener(v -> cloneAction("kill", clonePackage));
+        actions.addView(kill, rowButtonParams(true));
+
+        Button delete = smallButton("Delete");
+        delete.setOnClickListener(v -> confirmDeleteClone(clonePackage, label));
+        actions.addView(delete, rowButtonParams(false));
+
+        row.addView(actions);
+        cloneList.addView(row);
+    }
+
+    private void confirmDeleteClone(String clonePackage, String label) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete clone?")
+                .setMessage("\"" + label + "\" and its clone data will be uninstalled.")
+                .setPositiveButton("Delete", (dialog, which) ->
+                        cloneAction("delete", clonePackage))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void cloneAction(String action, String clonePackage) {
         io.execute(() -> {
-            EngineClient.Frame before = client.evidence(0);
-            EngineClient.Frame after = client.evidence(1);
-            Bitmap beforeBitmap = before.ok()
-                    ? BitmapFactory.decodeByteArray(before.jpeg, 0, before.jpeg.length) : null;
-            Bitmap afterBitmap = after.ok()
-                    ? BitmapFactory.decodeByteArray(after.jpeg, 0, after.jpeg.length) : null;
+            String result;
+            switch (action) {
+                case "launch":
+                    result = client.cloneLaunch(clonePackage);
+                    break;
+                case "kill":
+                    result = client.cloneKill(clonePackage);
+                    break;
+                default:
+                    result = client.cloneDelete(clonePackage);
+                    break;
+            }
+            final String outcome = result;
             main.post(() -> {
-                if (beforeBitmap != null) {
-                    imgBefore.setImageBitmap(beforeBitmap);
-                }
-                if (afterBitmap != null) {
-                    imgAfter.setImageBitmap(afterBitmap);
-                }
+                appendLog("clone " + action + " " + clonePackage + ": " + outcome);
+                toast(outcome.contains("\"ok\":true")
+                        ? ("Clone " + action + " ok") : ("Clone " + action + " failed"));
+                main.postDelayed(this::refreshClones, 1500);
             });
         });
     }
 
-    private void saveEvidence() {
-        if (lastSelfTestJson.isEmpty()) {
-            toast("Run the self-test first");
-            return;
+    private static String describeCloneStatus(String status) {
+        switch (status) {
+            case "running":
+                return "running on the display";
+            case "installed":
+                return "installed · tap Launch to run it headlessly";
+            case "missing":
+                return "package missing — delete this entry";
+            default:
+                return status;
         }
-        final String report = buildReport();
-        io.execute(() -> {
-            EngineClient.Frame before = client.evidence(0);
-            EngineClient.Frame after = client.evidence(1);
-            List<String> saved = new ArrayList<>();
-            saved.add("report: " + saveBytes("headless-selftest-" + timestamp() + ".txt",
-                    "text/plain", report.getBytes(StandardCharsets.UTF_8)));
-            if (before.ok()) {
-                saved.add("before: " + saveBytes("headless-before-" + timestamp() + ".jpg",
-                        "image/jpeg", before.jpeg));
-            }
-            if (after.ok()) {
-                saved.add("after: " + saveBytes("headless-after-" + timestamp() + ".jpg",
-                        "image/jpeg", after.jpeg));
-            }
-            StringBuilder builder = new StringBuilder("Saved evidence\n");
-            for (String line : saved) {
-                builder.append(line).append('\n');
-            }
-            main.post(() -> {
-                appendLog(builder.toString());
-                toast("Evidence saved (Downloads/HeadlessAndroid)");
-            });
-        });
     }
 
-    private String buildReport() {
-        StringBuilder report = new StringBuilder();
-        report.append("Headless Android self-test report\n");
-        report.append("time: ").append(new Date().toString()).append('\n');
-        report.append("device: ").append(android.os.Build.MODEL)
-                .append(" / Android ").append(android.os.Build.VERSION.RELEASE).append('\n');
-        report.append('\n');
-        JSONObject object = parse(lastSelfTestJson);
-        if (object != null) {
-            JSONArray checks = object.optJSONArray("checks");
-            if (checks != null) {
-                for (int i = 0; i < checks.length(); i++) {
-                    JSONObject check = checks.optJSONObject(i);
-                    if (check == null) {
-                        continue;
-                    }
-                    report.append(check.optBoolean("pass", false) ? "PASS " : "FAIL ")
-                            .append(check.optString("name"))
-                            .append(" — ").append(check.optString("detail")).append('\n');
-                }
-            }
-            report.append('\n');
-            JSONArray lines = object.optJSONArray("lines");
-            if (lines != null) {
-                for (int i = 0; i < lines.length(); i++) {
-                    report.append(lines.optString(i)).append('\n');
-                }
-            }
+    private Button smallButton(String text) {
+        Button button = new Button(this);
+        button.setText(text);
+        button.setAllCaps(false);
+        button.setTextSize(12f);
+        button.setTextColor(getColor(R.color.text_primary));
+        button.setBackgroundResource(R.drawable.bg_secondary);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setPadding(dp(4), 0, dp(4), 0);
+        return button;
+    }
+
+    private LinearLayout.LayoutParams rowButtonParams(boolean margin) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        if (margin) {
+            params.rightMargin = dp(6);
         }
-        return report.toString();
+        return params;
     }
 
     // ----------------------------------------------------------------- utils
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 
     private void appendLog(String message) {
         String line = message == null ? "" : message;
@@ -711,42 +822,6 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             text = text.substring(text.length() - 16000);
         }
         txtLog.setText(text);
-    }
-
-    private String saveBytes(String displayName, String mimeType, byte[] data) {
-        try {
-            ContentResolver resolver = getContentResolver();
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, displayName);
-            values.put(MediaStore.MediaColumns.MIME_TYPE, mimeType);
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/HeadlessAndroid");
-            Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) {
-                throw new IllegalStateException("MediaStore insert returned null");
-            }
-            try (OutputStream out = resolver.openOutputStream(uri)) {
-                if (out == null) {
-                    throw new IllegalStateException("openOutputStream returned null");
-                }
-                out.write(data);
-            }
-            return "Downloads/HeadlessAndroid/" + displayName;
-        } catch (Throwable e) {
-            try {
-                File dir = new File(getExternalFilesDir(null), "evidence");
-                if (!dir.exists() && !dir.mkdirs()) {
-                    throw new IllegalStateException("cannot create " + dir);
-                }
-                File file = new File(dir, displayName);
-                try (FileOutputStream out = new FileOutputStream(file)) {
-                    out.write(data);
-                }
-                return file.getAbsolutePath();
-            } catch (Throwable fallbackError) {
-                return "save failed: " + fallbackError.getMessage();
-            }
-        }
     }
 
     private static String timestamp() {

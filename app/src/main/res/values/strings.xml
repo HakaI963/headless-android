@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Headless Android</string>
-    <string name="subtitle">Shizuku-powered virtual display engine</string>
+    <string name="subtitle">Shizuku virtual display + app cloner</string>
 
     <string name="section_shizuku">Shizuku</string>
     <string name="section_display">Virtual display</string>
     <string name="section_preview">Preview</string>
     <string name="section_apps">Launch an app on the display</string>
+    <string name="section_clones">App cloner</string>
     <string name="section_input">Input injection</string>
-    <string name="section_selftest">Self-test (proves it works)</string>
     <string name="section_log">Log</string>
 
     <string name="btn_grant">Grant Shizuku</string>
@@ -20,13 +20,14 @@
     <string name="btn_choose_app">Choose app…</string>
     <string name="btn_refresh_apps">Refresh list</string>
     <string name="btn_launch_app">Launch on display</string>
+    <string name="btn_clone_installed">Clone installed app…</string>
+    <string name="btn_install_apk_clone">Install APK as clone…</string>
+    <string name="btn_refresh_clones">Refresh clones</string>
     <string name="btn_tap">Tap</string>
     <string name="btn_swipe_up">Swipe up</string>
     <string name="btn_back">Back</string>
     <string name="btn_home">Home</string>
     <string name="btn_send_text">Type</string>
-    <string name="btn_self_test">Run full self-test</string>
-    <string name="btn_save_evidence">Save report + screenshots</string>
     <string name="btn_clear_log">Clear</string>
     <string name="btn_snapshot">Save snapshot</string>
     <string name="btn_pause_preview">Pause preview</string>
@@ -34,11 +35,6 @@
     <string name="pause_preview">Pause preview</string>
     <string name="start_preview">Start preview</string>
     <string name="preview_paused">preview paused</string>
-
-    <string name="badge_idle">IDLE</string>
-    <string name="badge_running">RUNNING</string>
-    <string name="badge_pass">PASS</string>
-    <string name="badge_fail">FAIL</string>
 
     <string name="hint_width">Width</string>
     <string name="hint_height">Height</string>
@@ -49,6 +45,7 @@
     <string name="hint_app">No app selected</string>
     <string name="check_force_stop">Force-stop the app before launching</string>
 
-    <string name="selftest_blurb">Creates the display, launches the pattern activity\non it, verifies real pixels, animation and a\ntap that changes the screen. Evidence frames are\nkept for download.</string>
-    <string name="log_blurb">Shell-side log (Binder + am start output)</string>
+    <string name="clones_blurb">Clones are repackaged with a new package name and signature, installed hidden, and run in user 0 so they render on the virtual display. Signature-checking apps may refuse to run.</string>
+    <string name="clones_not_connected">shell engine not connected</string>
+    <string name="log_blurb">Shell-side log (Binder + pm/am output)</string>
 </resources>

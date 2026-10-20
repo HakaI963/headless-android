@@ -5,13 +5,13 @@ package com.bliss.headless;
  *
  * <p>All commands are synchronous {@code IBinder.transact} calls. JSON commands
  * answer with a JSON string; frame commands answer with
- * {@code int ok, int width, int height, long timestamp, byte[] jpeg}.
+ * {@code int ok, String error, byte[] jpeg}.
  */
 final class Protocol {
     private Protocol() {
     }
 
-    static final int VERSION = 1;
+    static final int VERSION = 2;
 
     static final int CMD_STATUS = 1;
     static final int CMD_CREATE = 2;
@@ -23,17 +23,20 @@ final class Protocol {
     static final int CMD_SWIPE = 8;
     static final int CMD_KEY = 9;
     static final int CMD_TEXT = 10;
-    static final int CMD_SELF_TEST_START = 11;
-    static final int CMD_SELF_TEST_STATUS = 12;
-    static final int CMD_EVIDENCE = 13;
     static final int CMD_SHUTDOWN = 14;
-    static final int CMD_LAUNCH_TEST_ACTIVITY = 15;
     static final int CMD_LOG_TAIL = 16;
+
+    // Repackaged clones
+    static final int CMD_CLONE_LIST = 20;
+    static final int CMD_CLONE_CREATE_INSTALLED = 21;
+    static final int CMD_CLONE_CREATE_APK = 22;
+    static final int CMD_CLONE_LAUNCH = 23;
+    static final int CMD_CLONE_KILL = 24;
+    static final int CMD_CLONE_DELETE = 25;
+    static final int CMD_AUTH = 27;
 
     /** Class instantiated by Shizuku inside the shell process. Must stay public. */
     static final String SERVICE_CLASS = "com.bliss.headless.DisplayService";
     static final String SERVICE_TAG = "headless-display";
-    static final int SERVICE_VERSION = 1;
-
-    static final String TEST_ACTIVITY = "com.bliss.headless/.TestPatternActivity";
+    static final int SERVICE_VERSION = 2;
 }

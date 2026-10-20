@@ -10,8 +10,8 @@ android {
         applicationId = "com.bliss.headless"
         minSdk = 29        // VirtualDisplay + InputManager.setDisplayId paths used here
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "2.0.0"
     }
 
     buildTypes {
@@ -38,4 +38,5 @@ android {
 dependencies {
     implementation "dev.rikka.shizuku:api:13.1.5"
     implementation "dev.rikka.shizuku:provider:13.1.5"
+    implementation files("libs/arsc-lib.jar", "libs/apksig.jar")
 }

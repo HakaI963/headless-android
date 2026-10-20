@@ -3,6 +3,7 @@ package com.bliss.headless;
 import android.content.Context;
 import android.os.Binder;
 import android.os.Parcel;
+import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.util.Log;
@@ -10,11 +11,9 @@ import android.util.Log;
 /**
  * Shizuku UserService entry point (runs as shell/root in a dedicated process).
  *
- * <p>Replaces ShadowAuto's {@code ShellUserService} + JSON-RPC server
- * (Apache-2.0) with direct Binder transactions: the UI process binds this
- * service through Shizuku and calls it synchronously. This removes the whole
- * localhost RPC layer, its port handling and the unused OCR/AI commands while
- * keeping the exact same display engine underneath.
+ * <p>Direct Binder transactions instead of ShadowAuto's JSON-RPC server
+ * (Apache-2.0). JSON commands answer with a JSON string; frame commands answer
+ * with {@code int ok, String error, byte[] jpeg}.
  */
 public class DisplayService extends Binder {
     private static final String TAG = "HeadlessDisplay";
@@ -55,7 +54,7 @@ public class DisplayService extends Binder {
     protected boolean onTransact(int code, Parcel data, Parcel reply, int flags)
             throws RemoteException {
         if (code != Protocol.CMD_STATUS && code != Protocol.CMD_SHUTDOWN
-                && (code < Protocol.CMD_CREATE || code > Protocol.CMD_LOG_TAIL)) {
+                && (code < Protocol.CMD_CREATE || code > Protocol.CMD_AUTH)) {
             return super.onTransact(code, data, reply, flags);
         }
         try {
@@ -77,7 +76,7 @@ public class DisplayService extends Binder {
     }
 
     private static boolean isFrameCommand(int code) {
-        return code == Protocol.CMD_CAPTURE || code == Protocol.CMD_EVIDENCE;
+        return code == Protocol.CMD_CAPTURE;
     }
 
     private void handle(int code, Parcel data, Parcel reply) {
@@ -85,6 +84,10 @@ public class DisplayService extends Binder {
         if (local == null && code != Protocol.CMD_SHUTDOWN) {
             install(null);
             local = engine;
+        }
+        if (local == null && code != Protocol.CMD_SHUTDOWN) {
+            reply.writeString(Jsons.error("engine unavailable"));
+            return;
         }
 
         switch (code) {
@@ -100,63 +103,43 @@ public class DisplayService extends Binder {
                 return;
             }
             case Protocol.CMD_STATUS: {
-                reply.writeString(local == null ? Jsons.error("engine unavailable") : local.statusJson());
+                reply.writeString(local.statusJson());
                 return;
             }
             case Protocol.CMD_LOG_TAIL: {
-                int maxLines = data.readInt();
-                reply.writeString(local == null
-                        ? "[]" : local.logTailJson(maxLines));
+                reply.writeString(local.logTailJson(data.readInt()));
                 return;
             }
             case Protocol.CMD_CREATE: {
                 int width = data.readInt();
                 int height = data.readInt();
                 int dpi = data.readInt();
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.createDisplay(width, height, dpi));
+                reply.writeString(local.createDisplay(width, height, dpi));
                 return;
             }
             case Protocol.CMD_RELEASE: {
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.releaseDisplay());
+                reply.writeString(local.releaseDisplay());
                 return;
             }
             case Protocol.CMD_LIST_APPS: {
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.listAppsJson());
+                reply.writeString(local.listAppsJson());
                 return;
             }
             case Protocol.CMD_LAUNCH_APP: {
                 String packageName = data.readString();
                 boolean forceStop = data.readInt() == 1;
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.launchApp(packageName, forceStop));
-                return;
-            }
-            case Protocol.CMD_LAUNCH_TEST_ACTIVITY: {
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.launchTestActivity());
+                reply.writeString(local.launchApp(packageName, forceStop));
                 return;
             }
             case Protocol.CMD_CAPTURE: {
                 int timeoutMs = data.readInt();
                 int quality = data.readInt();
-                byte[] jpeg = local == null ? null : local.captureJpeg(timeoutMs, quality);
+                byte[] jpeg = local.captureJpeg(timeoutMs, quality);
                 writeFrame(reply, jpeg, jpeg == null ? "no frame available yet" : "");
                 return;
             }
-            case Protocol.CMD_EVIDENCE: {
-                int index = data.readInt();
-                byte[] jpeg = local == null ? null : local.evidence(index);
-                writeFrame(reply, jpeg, jpeg == null ? "no evidence captured" : "");
-                return;
-            }
             case Protocol.CMD_TAP: {
-                int x = data.readInt();
-                int y = data.readInt();
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.tap(x, y));
+                reply.writeString(local.tap(data.readInt(), data.readInt()));
                 return;
             }
             case Protocol.CMD_SWIPE: {
@@ -165,31 +148,56 @@ public class DisplayService extends Binder {
                 int x2 = data.readInt();
                 int y2 = data.readInt();
                 int duration = data.readInt();
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable")
-                        : local.swipe(x1, y1, x2, y2, duration));
+                reply.writeString(local.swipe(x1, y1, x2, y2, duration));
                 return;
             }
             case Protocol.CMD_KEY: {
-                int keyCode = data.readInt();
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.key(keyCode));
+                reply.writeString(local.key(data.readInt()));
                 return;
             }
             case Protocol.CMD_TEXT: {
-                String value = data.readString();
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.text(value));
+                reply.writeString(local.text(data.readString()));
                 return;
             }
-            case Protocol.CMD_SELF_TEST_START: {
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.startSelfTest());
+
+            // ------------------------------------------------------ clones
+
+            case Protocol.CMD_CLONE_LIST: {
+                reply.writeString(local.cloneListJson());
                 return;
             }
-            case Protocol.CMD_SELF_TEST_STATUS: {
-                reply.writeString(local == null
-                        ? Jsons.error("engine unavailable") : local.selfTestStatusJson());
+            case Protocol.CMD_CLONE_CREATE_INSTALLED: {
+                String packageName = data.readString();
+                String name = data.readString();
+                reply.writeString(local.cloneFromInstalled(packageName, name));
+                return;
+            }
+            case Protocol.CMD_CLONE_CREATE_APK: {
+                String name = data.readString();
+                ParcelFileDescriptor descriptor =
+                        ParcelFileDescriptor.CREATOR.createFromParcel(data);
+                reply.writeString(local.cloneFromApk(descriptor, name));
+                return;
+            }
+            case Protocol.CMD_CLONE_LAUNCH: {
+                String clonePackage = data.readString();
+                reply.writeString(local.cloneLaunch(clonePackage));
+                return;
+            }
+            case Protocol.CMD_CLONE_KILL: {
+                String clonePackage = data.readString();
+                reply.writeString(local.cloneKill(clonePackage));
+                return;
+            }
+            case Protocol.CMD_CLONE_DELETE: {
+                String clonePackage = data.readString();
+                reply.writeString(local.cloneDelete(clonePackage));
+                return;
+            }
+            case Protocol.CMD_AUTH: {
+                reply.writeString(local.auth(data.readString())
+                        ? Jsons.ok("authenticated")
+                        : Jsons.error("bad control token"));
                 return;
             }
             default: {

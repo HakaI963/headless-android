@@ -10,9 +10,4 @@
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
     </style>
-
-    <style name="TestPatternTheme" parent="AppTheme">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowNoTitle">true</item>
-    </style>
 </resources>

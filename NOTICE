@@ -20,3 +20,14 @@ This product includes the Shizuku API
 MIT License, consumed as a Maven dependency:
   dev.rikka.shizuku:api:13.1.5
   dev.rikka.shizuku:provider:13.1.5
+
+This product includes ARSCLib
+(https://github.com/REAndroid/ARSCLib), licensed under the Apache License,
+Version 2.0, packaged as app/libs/arsc-lib.jar.
+
+This product includes Android apksig
+(https://android.googlesource.com/platform/tools/apksig/), licensed under the
+Apache License, Version 2.0, packaged as app/libs/apksig.jar.
+
+The clone signing key at app/src/main/assets/clone.keystore is a test key and
+is intentionally public.

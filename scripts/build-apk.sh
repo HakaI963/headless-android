@@ -121,20 +121,21 @@ echo "== aapt2 link"
 "$BUILD_TOOLS/aapt2" link \
     -o "$BUILD/app-unsigned.apk" \
     -I "$ANDROID_JAR" \
+    -A "$APP/src/main/assets" \
     --manifest "$BUILD/AndroidManifest.xml" \
     --java "$GEN" \
     --custom-package com.bliss.headless \
     --min-sdk-version 29 \
     --target-sdk-version 36 \
-    --version-code 2 \
-    --version-name 1.0.1 \
+    --version-code 3 \
+    --version-name 2.0.0 \
     "$BUILD/res.zip"
 
 # --- java -------------------------------------------------------------------
 echo "== javac"
 CP="$ANDROID_JAR:$ANNOTATION_JAR"
-for jar in "$JARS"/*.jar; do
-    CP="$CP:$jar"
+for jar in "$JARS"/*.jar "$APP"/libs/*.jar; do
+    [ -f "$jar" ] && CP="$CP:$jar"
 done
 
 find "$APP/src/main/java" "$GEN" -name '*.java' > "$BUILD/sources.txt"
@@ -155,7 +156,9 @@ find "$CLASSES" -name '*.class' > "$BUILD/classes.txt"
     "$JARS/shizuku-api.jar" \
     "$JARS/shizuku-provider.jar" \
     "$JARS/shizuku-aidl.jar" \
-    "$JARS/shizuku-shared.jar"
+    "$JARS/shizuku-shared.jar" \
+    "$APP/libs/arsc-lib.jar" \
+    "$APP/libs/apksig.jar"
 
 # --- package ----------------------------------------------------------------
 echo "== package"
@@ -180,8 +183,10 @@ echo "== apksigner"
     "$BUILD/app-aligned.apk"
 
 "$JAVA" -jar "$BUILD_TOOLS/lib/apksigner.jar" verify --print-certs \
-    "$BUILD/headless-android-debug.apk" | head -5
+    "$BUILD/headless-android-debug.apk" > "$BUILD/verify.txt"
+sed -n '1,5p' "$BUILD/verify.txt"
 
 echo
 echo "APK:  $BUILD/headless-android-debug.apk"
-"$BUILD_TOOLS/aapt2" dump badging "$BUILD/headless-android-debug.apk" | head -6
+"$BUILD_TOOLS/aapt2" dump badging "$BUILD/headless-android-debug.apk" > "$BUILD/badging.txt"
+sed -n '1,6p' "$BUILD/badging.txt"

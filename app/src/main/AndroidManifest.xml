@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The shell-side engine lists every launchable app so it can be started
-         on the virtual display. This is a local device-automation tool. -->
+    <!-- The shell-side engine lists every launchable app so it can be cloned or
+         started on the virtual display. This is a local device-automation tool. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Permission defined by the Shizuku manager (mirrors the provider AAR). -->
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
 
@@ -45,16 +46,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Rendered on the virtual display by the self-test. Exported (no
-             intent filter, no sensitive data) so the shell engine can start it
-             with an "am start display &lt;id&gt;" command. -->
-
-        <activity
-            android:name=".TestPatternActivity"
-            android:excludeFromRecents="true"
-            android:exported="true"
-            android:screenOrientation="portrait"
-            android:theme="@style/TestPatternTheme" />
+        <!-- Headless automation interface: same commands as the UI, callable
+             with `am broadcast` by root/shell. Mutating actions require the
+             engine token; see ControlReceiver. No intent filter: explicit
+             broadcasts. -->
+        <receiver
+            android:name=".ControlReceiver"
+            android:exported="true" />
     </application>
 
 </manifest>

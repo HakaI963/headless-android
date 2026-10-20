@@ -1,128 +1,204 @@
 # Headless Android
 
-A minimal, self-contained Android app that creates a **real virtual display**,
-launches any installed app onto it, streams a live preview, injects touch/key
-input into it, and includes a **built-in self-test that proves the display
-actually works** by reading the rendered pixels back.
+A minimal Android app that creates a **real virtual display**, runs apps on it,
+streams a live preview, injects touch/key input, and builds **isolated app
+clones** without touching your main installation.
 
-This repository contains *only* the virtual display engine, extracted from
-[ShadowAuto](https://github.com/HakaI963/ShadowAuto). OCR, the AI model client,
-the automation engine, the shell/RPC layer and the web launcher were all
-removed. See [docs/VIRTUAL_DISPLAY.md](docs/VIRTUAL_DISPLAY.md) for the exact
-code map.
+The display engine is extracted from
+[ShadowAuto](https://github.com/HakaI963/ShadowAuto). OCR, the AI client, the
+automation loop and the web launcher were removed. The clone engine is new:
+it repackages an installed app (or an APK you pick) under a new package name,
+re-signs it, installs it hidden, and launches it on the virtual display.
 
-## What it does
+## Features
 
 | Feature | Notes |
 |---|---|
-| Create / release a virtual display | `DisplayManager.createVirtualDisplay` with `PUBLIC` + hidden `SUPPORTS_TOUCH` / `OWN_FOCUS` / `TRUSTED` flags, with automatic fallback per ROM |
-| Launch any app on the display | `am start --display <id>` through the Shizuku shell service |
-| Live preview | JPEG frames read from the display's `ImageReader` surface, ~2 fps, inside the app |
-| Screenshots / evidence | Saved to `Downloads/HeadlessAndroid/` (no storage permission needed) |
-| Input injection | tap, swipe, key and text events sent to the display id via `InputManager.injectInputEvent` |
-| Self-test | creates the display, launches a deterministic pattern activity on it, verifies colors, animation and a real tap |
-
-No `MediaProjection`, no screen capture consent dialog, no root requirement —
-just [Shizuku](https://shizuku.rikka.app/) (which does require being started
-once, via ADB or root).
+| Create / release a virtual display | `DisplayManager.createVirtualDisplay` with `PUBLIC` + hidden `SUPPORTS_TOUCH` / `OWN_FOCUS` / `TRUSTED` flags, with per-ROM fallbacks |
+| Launch any installed app on the display | `am start --display <id>` through the Shizuku shell service |
+| Clone an installed app | Copies base + split APKs, patches the manifest, re-signs, silently installs in user 0 |
+| Install an APK as a clone | File picker (SAF) → `ParcelFileDescriptor` → same repackaging pipeline |
+| Multiple clones per app | Each clone gets a unique package (`com.bliss.hclone.h…`) and its own data |
+| Launch / kill / delete clones | Rows in the app; clones are hidden from the phone launcher |
+| Live preview | JPEG frames from the display's `ImageReader` surface, ~2 fps |
+| Input injection | Tap, swipe, Back/Home, text; all scoped to the display |
+| Snapshots | Saved to `Download/HeadlessAndroid/` |
+| Automation API | Explicit broadcasts from shell/root with a control token |
+| Keep-awake | A wake lock keeps the screen (and therefore the virtual display) alive while the engine exists |
 
 ## Requirements
 
-- Android **10+** (API 29), tested target API 36
-- [Shizuku](https://shizuku.rikka.app/download/) installed **and running** on
-  the device (started via wireless debugging or root)
-- The app itself needs no other permission; it requests the Shizuku API
-  permission on first use
+- Android 10+ (tested on Android 16 / HyperOS).
+- [Shizuku](https://shizuku.rikka.app/) running (root or shell mode) and the
+  Shizuku permission granted to this app.
+- The phone must be **unlocked** when you use the display. HyperOS sleeps
+  virtual displays together with the phone screen, so the app holds a wake lock
+  while a display is active; it cannot bypass a secure keyguard.
 
 ## Install
 
-Download `headless-android-debug.apk` from the latest
-[release](../../releases/latest) or from the CI artifacts, then install it.
-It is debug-signed, so uninstall any previous copy before upgrading.
+Download `headless-android-debug.apk` from the latest release and install it.
+The APK is debug-signed. If you have a build signed with a different key,
+uninstall the old version first; Android will refuse an update across keys.
+Clones are uninstalled with the app (or from **Clone → Delete**); the original
+apps are never modified.
 
 ## Use
 
-1. Open the app → **Grant Shizuku** (the shell engine binds automatically once
-   permission is granted; otherwise tap **Start engine**).
-2. **Create display** (default 720×1280 @320). The preview card turns live.
-3. **Choose app…** → pick any installed app → **Launch on display**. The app
-   starts on the virtual display, not on your physical screen.
-4. Use **Tap / Swipe up / Back / Home / Type** to control it.
-5. Tap **Run full self-test** for the end-to-end proof and **Save report +
-   screenshots** to keep the evidence.
+1. Open **Headless Android** and grant Shizuku access.
+2. Tap **Start engine**.
+3. Pick a size/DPI and tap **Create display**.
+4. To clone an app:
+   - **Clone installed app…** → choose an app → give the clone a name.
+   - or **Install APK as clone…** → pick a base APK.
+   The engine copies the APK, rewrites its manifest, re-signs it, installs it
+   hidden, and records it in the clone list. Large apps can take a while.
+5. Tap **Launch** on a clone (or launch any installed app from the *Launch an
+   app* card). The app opens on the virtual display; the phone's own screen is
+   untouched.
+6. Use the preview and input buttons for tap, swipe, Back/Home and text.
+   **Save snapshot** writes a JPEG to `Download/HeadlessAndroid/`.
 
-### Expected self-test output
+## How cloning works
 
 ```
-[0.0s] service uid=2000 sdk=36 model=...
-[0.1s] PASS display_created — id=3 720x1280 @320 flags=PUBLIC|PRESENTATION|OWN_CONTENT_ONLY|SUPPORTS_TOUCH|...
-[0.2s] PASS display_active — state=ON ...
-[1.9s] PASS test_activity_launched — am start exit=0 Starting: Intent ...
-[2.7s] PASS frame_captured — 720x1280 ...
-[2.8s] PASS pattern_colors — TL=(255,0,255) TR=(255,235,60) BL=(0,190,215) BR=(65,82,180)
-[3.5s] PASS frames_animating — mean_diff=...
-[4.1s] PASS tap_reached_display — TL=(0,199,85) ...
-[4.2s] RESULT: PASS
+original app (base + splits)
+        │  pm path / ApplicationInfo
+        ▼
+/data/local/tmp/headless/stage-<id>/
+        │  ARSCLib: rewrite binary AndroidManifest.xml
+        │    package name, provider authorities, custom permissions,
+        │    task affinity, relative class names, remove LAUNCHER category,
+        │    set clone label
+        ▼
+apksig: re-sign all APKs with the embedded clone key
+        ▼
+pm install (single APK) or install-create/write/commit (splits)
+        ▼
+normal user-0 package, hidden from the launcher
+        ▼
+am start --display <id> -n <clone>/<original activity>
 ```
 
-`PASS` means real buffers were rendered by the activity on the virtual display
-and a real injected tap changed them. See [docs/SELF_TEST.md](docs/SELF_TEST.md)
-for the full check list and independent verification commands
-(`dumpsys display`, `SurfaceFlinger --display-id`, `logcat`).
+Clones live in **user 0**, because Android (and HyperOS in particular) stops
+activities belonging to any other Android user; a shell `pm create-user` clone
+installs fine but can never become visible on a virtual display. Repackaging
+keeps the clone in the foreground user, so it renders and receives input.
+
+### Limitations
+
+- **Empty data.** A clone starts with fresh storage; the original app's private
+  data is not copied. The original app and its data are never touched.
+- **Signature checks.** The clone is signed with the embedded clone key, not the
+  original developer key. Banking apps, WhatsApp, Google sign-in, license
+  checks and Play Integrity will refuse to run. Drag-and-drop games and simple
+  utilities usually work.
+- **Package identity.** Apps that hard-code their package name in native code or
+  verify it may misbehave. Apps with `sharedUserId` are rejected.
+- **APK file picker loads base APKs only.** Split APKs must be cloned from the
+  installed app (the engine copies all splits).
+- **Play Store updates** do not apply to clones.
+- **Clones are visible under Settings → Apps** (they are real packages) but have
+  no launcher icon.
+- **Security:** the clone-signing key is embedded in the APK. It is a
+  convenience/test key, not a secret; do not use clones for sensitive accounts.
+
+See [docs/CLONING.md](docs/CLONING.md) for the full design and
+[docs/VIRTUAL_DISPLAY.md](docs/VIRTUAL_DISPLAY.md) for the display code map.
+
+## Automation API
+
+The app exports a receiver that runs the same commands as the UI. Only
+`START_ENGINE`, `STOP_ENGINE` and `PING` work without the control token; every
+other action requires the token from
+`/data/local/tmp/headless/control.token` (readable by shell/root only).
+
+```sh
+TOKEN=$(cat /data/local/tmp/headless/control.token)
+am broadcast -a com.bliss.headless.action.START_ENGINE \
+  -n com.bliss.headless/.ControlReceiver
+sleep 9   # Shizuku user service + input bridge
+
+am broadcast -a com.bliss.headless.action.CREATE_DISPLAY \
+  --ei width 720 --ei height 1280 --ei dpi 320 --es token "$TOKEN" \
+  -n com.bliss.headless/.ControlReceiver
+
+am broadcast -a com.bliss.headless.action.CLONE_INSTALLED \
+  --es package com.example.app --es name "Example clone" --es token "$TOKEN" \
+  -n com.bliss.headless/.ControlReceiver
+
+am broadcast -a com.bliss.headless.action.CLONE_LIST --es token "$TOKEN" \
+  -n com.bliss.headless/.ControlReceiver
+# find the clone package in logcat: RESULT CLONE_LIST {...}
+
+am broadcast -a com.bliss.headless.action.CLONE_LAUNCH \
+  --es package com.bliss.hclone.hXXXXXXXX --es token "$TOKEN" \
+  -n com.bliss.headless/.ControlReceiver
+
+am broadcast -a com.bliss.headless.action.TAP --ei x 360 --ei y 640 \
+  --es token "$TOKEN" -n com.bliss.headless/.ControlReceiver
+
+am broadcast -a com.bliss.headless.action.SNAPSHOT --es name shot.jpg \
+  --es token "$TOKEN" -n com.bliss.headless/.ControlReceiver
+
+am broadcast -a com.bliss.headless.action.CLONE_DELETE \
+  --es package com.bliss.hclone.hXXXXXXXX --es token "$TOKEN" \
+  -n com.bliss.headless/.ControlReceiver
+```
+
+Results appear under logcat tag `HeadlessControl`
+(`RESULT <action> …` / `ERROR <action> …`). Engine details use
+`HeadlessDisplay` and `HeadlessClone`.
 
 ## Build
 
-### Gradle (same as CI)
+With Gradle:
 
 ```sh
 ./gradlew assembleDebug
-# app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### No-Gradle script (JDK 17 + Android build-tools)
+Without Gradle (used on the development device):
 
 ```sh
 JAVA_HOME=/path/to/jdk17 \
 ANDROID_JAR=/path/to/android-36/android.jar \
-BUILD_TOOLS=/path/to/build-tools/35.0.0 \
+BUILD_TOOLS=/path/to/build-tools \
 ./scripts/build-apk.sh
-# build/local/headless-android-debug.apk
+# -> build/local/headless-android-debug.apk
 ```
 
-The script compiles resources with `aapt2`, Java with `javac`, dexes with
-`d8`, aligns with `zipalign` and signs with a throw-away debug keystore. It is
-how the first release APK in this repo was produced.
+Both builds consume the Java libraries in `app/libs/`:
+`arsc-lib.jar` (ARSCLib, Apache-2.0) for binary resource/manifest editing and
+`apksig.jar` (Android apksig, Apache-2.0) for APK signing.
 
 ## Repository layout
 
 ```
 app/src/main/java/com/bliss/headless/
-  DisplayService.java        Shizuku UserService entry point (runs as shell)
-  DisplayEngine.java         display lifecycle + commands + self-test
-  VirtualDisplaySession.java createVirtualDisplay, frame capture, IME policy
-  InputBridge.java           display-targeted tap/swipe/key/text
-  AppCatalog.java            app list + am start --display
-  ScreenCapture.java         ImageReader -> Bitmap
-  WindowManagerBridge.java   hidden window service (IME policy)
-  FrameAnalysis.java         pixel checks for the self-test
-  TestPatternActivity.java   deterministic pixels rendered on the display
-  EngineClient.java          UI-side Shizuku bind + Binder calls
-  MainActivity.java          UI: status, preview, apps, input, self-test
-scripts/build-apk.sh         no-Gradle build
-docs/VIRTUAL_DISPLAY.md      extraction/code map from ShadowAuto
-docs/SELF_TEST.md            what the self-test proves
+  VirtualDisplaySession.java   display creation + ImageReader surface
+  DisplayEngine.java           display lifecycle, input, wake lock, clones
+  DisplayService.java          Shizuku shell service + Binder commands
+  EngineClient.java            app-side Binder client
+  InputBridge.java             display-scoped input injection
+  AppCatalog.java              app listing + am start --display
+  CloneManager.java            repackaging clone engine
+  ControlReceiver.java         shell/root automation broadcasts
+  MainActivity.java            UI: display, preview, apps, clones, input
+  Downloads.java               snapshot saving via MediaStore
+  Protocol.java                command codes / Binder version
+app/src/main/assets/clone.keystore   clone signing key (test key)
+app/libs/arsc-lib.jar                ARSCLib (Apache-2.0)
+app/libs/apksig.jar                  apksig (Apache-2.0)
+docs/CLONING.md                      clone engine design + limitations
+docs/VIRTUAL_DISPLAY.md              display extraction/code map
 ```
 
-## Why Shizuku is required
+## Credits
 
-A headless display that can host *other apps* must be `PUBLIC` and launched
-into with shell privileges. `MediaProjection` can only mirror the physical
-screen and cannot start another app into the projection. Shizuku provides
-exactly those shell privileges without root; the entire interface to it here is
-permission + bind + a handful of Binder transactions.
-
-## Credits and license
-
-Apache License 2.0. The virtual display and input-injection code is derived
-from ShadowAuto; the Shizuku API is MIT (RikkaApps). See [NOTICE](NOTICE) and
-[docs/VIRTUAL_DISPLAY.md](docs/VIRTUAL_DISPLAY.md).
+- Virtual display engine derived from
+  [ShadowAuto](https://github.com/HakaI963/ShadowAuto) (Apache-2.0).
+- [Shizuku API](https://github.com/RikkaApps/Shizuku-API) (MIT).
+- [ARSCLib](https://github.com/REAndroid/ARSCLib) (Apache-2.0).
+- [apksig](https://android.googlesource.com/platform/tools/apksig/)
+  (Apache-2.0).

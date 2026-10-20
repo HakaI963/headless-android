@@ -281,9 +281,7 @@ public final class EngineClient {
         Parcel reply = Parcel.obtain();
         try {
             data.writeInt(first);
-            if (code != Protocol.CMD_EVIDENCE) {
-                data.writeInt(second);
-            }
+            data.writeInt(second);
             local.transact(code, data, reply, 0);
             reply.setDataPosition(0);
             int ok = reply.readInt();
@@ -334,16 +332,8 @@ public final class EngineClient {
         });
     }
 
-    public String launchTestActivity() {
-        return callJson(Protocol.CMD_LAUNCH_TEST_ACTIVITY, null);
-    }
-
     public Frame capture(int timeoutMs, int quality) {
         return callFrame(Protocol.CMD_CAPTURE, timeoutMs, quality);
-    }
-
-    public Frame evidence(int index) {
-        return callFrame(Protocol.CMD_EVIDENCE, index, 0);
     }
 
     public String tap(int x, int y) {
@@ -371,12 +361,43 @@ public final class EngineClient {
         return callJson(Protocol.CMD_TEXT, parcel -> parcel.writeString(value));
     }
 
-    public String startSelfTest() {
-        return callJson(Protocol.CMD_SELF_TEST_START, null);
+    // Clone space ----------------------------------------------------------
+
+    public String cloneList() {
+        return callJson(Protocol.CMD_CLONE_LIST, null);
     }
 
-    public String selfTestStatus() {
-        return callJson(Protocol.CMD_SELF_TEST_STATUS, null);
+    public String cloneFromInstalled(String packageName, String name) {
+        return callJson(Protocol.CMD_CLONE_CREATE_INSTALLED, parcel -> {
+            parcel.writeString(packageName);
+            parcel.writeString(name == null ? "" : name);
+        });
+    }
+
+    public String cloneFromApk(android.os.ParcelFileDescriptor descriptor, String name) {
+        return callJson(Protocol.CMD_CLONE_CREATE_APK, parcel -> {
+            parcel.writeString(name == null ? "" : name);
+            descriptor.writeToParcel(parcel, 0);
+        });
+    }
+
+    public String cloneLaunch(String clonePackage) {
+        return callJson(Protocol.CMD_CLONE_LAUNCH,
+                parcel -> parcel.writeString(clonePackage));
+    }
+
+    public String cloneKill(String clonePackage) {
+        return callJson(Protocol.CMD_CLONE_KILL,
+                parcel -> parcel.writeString(clonePackage));
+    }
+
+    public String cloneDelete(String clonePackage) {
+        return callJson(Protocol.CMD_CLONE_DELETE,
+                parcel -> parcel.writeString(clonePackage));
+    }
+
+    public String auth(String token) {
+        return callJson(Protocol.CMD_AUTH, parcel -> parcel.writeString(token == null ? "" : token));
     }
 
     private static String message(Throwable error) {

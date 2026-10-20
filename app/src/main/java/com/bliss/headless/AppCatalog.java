@@ -116,6 +116,10 @@ final class AppCatalog {
     }
 
     static CommandResult run(String command) throws Exception {
+        return run(command, 25);
+    }
+
+    static CommandResult run(String command, int timeoutSeconds) throws Exception {
         Process process = new ProcessBuilder("/system/bin/sh", "-c", command)
                 .redirectErrorStream(true)
                 .start();
@@ -127,7 +131,7 @@ final class AppCatalog {
                 output.append(line).append('\n');
             }
         }
-        boolean finished = process.waitFor(25, TimeUnit.SECONDS);
+        boolean finished = process.waitFor(Math.max(1, timeoutSeconds), TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
             return new CommandResult(-1, output.append("[timeout]").toString());
