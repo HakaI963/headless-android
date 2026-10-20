@@ -126,8 +126,8 @@ echo "== aapt2 link"
     --custom-package com.bliss.headless \
     --min-sdk-version 29 \
     --target-sdk-version 36 \
-    --version-code 1 \
-    --version-name 1.0.0 \
+    --version-code 2 \
+    --version-name 1.0.1 \
     "$BUILD/res.zip"
 
 # --- java -------------------------------------------------------------------

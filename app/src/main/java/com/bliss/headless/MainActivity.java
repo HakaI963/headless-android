@@ -90,6 +90,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
     private Button btnClearLog;
 
     private boolean previewRunning;
+    private boolean previewUserPaused;
     private Bitmap previewBitmap;
     private long previewFrames;
     private long previewWindowStart;
@@ -187,6 +188,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             }
             displayWidth = width;
             displayHeight = height;
+            previewUserPaused = false;
             io.execute(() -> {
                 String result = client.createDisplay(width, height, dpi);
                 main.post(() -> {
@@ -210,8 +212,10 @@ public class MainActivity extends Activity implements EngineClient.Listener {
 
         btnPreview.setOnClickListener(v -> {
             if (previewRunning) {
+                previewUserPaused = true;
                 stopPreview();
             } else {
+                previewUserPaused = false;
                 startPreview();
             }
         });
@@ -395,7 +399,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             btnHome.setEnabled(true);
             btnSendText.setEnabled(true);
             btnSnapshot.setEnabled(true);
-            if (!previewRunning) {
+            if (!previewRunning && !previewUserPaused) {
                 startPreview();
             }
         } else {
@@ -423,6 +427,7 @@ public class MainActivity extends Activity implements EngineClient.Listener {
             return;
         }
         previewRunning = true;
+        previewUserPaused = false;
         btnPreview.setText(R.string.pause_preview);
         previewFrames = 0;
         previewWindowStart = System.currentTimeMillis();
