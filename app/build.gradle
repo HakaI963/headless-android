@@ -1,0 +1,41 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace = "com.bliss.headless"
+    compileSdk = 36        // Android 16 — same target as the upstream ShadowAuto fork
+
+    defaultConfig {
+        applicationId = "com.bliss.headless"
+        minSdk = 29        // VirtualDisplay + InputManager.setDisplayId paths used here
+        targetSdk = 36
+        versionCode = 1
+        versionName = "1.0.0"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            // No signingConfig on purpose: CI/local scripts sign with a throw-away
+            // debug key so any device can install the artifact.
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
+}

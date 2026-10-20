@@ -1,0 +1,17 @@
+# build outputs
+build/
+app/build/
+.gradle/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# keystores (never commit)
+*.keystore
+*.jks
+
+# OS
+.DS_Store

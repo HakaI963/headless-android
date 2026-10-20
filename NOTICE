@@ -1,0 +1,22 @@
+Headless Android
+Copyright 2026 HakaI963
+
+This product includes software derived from ShadowAuto
+(https://github.com/HakaI963/ShadowAuto, originally mirrored from
+android-notes/ShadowAuto), which is licensed under the Apache License,
+Version 2.0.
+
+Files derived from ShadowAuto:
+  app/src/main/java/com/bliss/headless/VirtualDisplaySession.java
+  app/src/main/java/com/bliss/headless/ScreenCapture.java
+  app/src/main/java/com/bliss/headless/InputBridge.java
+  app/src/main/java/com/bliss/headless/WindowManagerBridge.java
+  app/src/main/java/com/bliss/headless/AppCatalog.java
+  app/src/main/java/com/bliss/headless/DisplayService.java   (was ShellUserService.java)
+  app/src/main/java/com/bliss/headless/EngineClient.java     (was ShizukuServerManager.java)
+
+This product includes the Shizuku API
+(https://github.com/RikkaApps/Shizuku-API) by Rikka, licensed under the
+MIT License, consumed as a Maven dependency:
+  dev.rikka.shizuku:api:13.1.5
+  dev.rikka.shizuku:provider:13.1.5
